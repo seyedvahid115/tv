@@ -15,72 +15,87 @@ import androidx.appcompat.app.AppCompatActivity
 class MainActivity : AppCompatActivity() {
 
     // کدهای رایج LG (پروتکل NEC): آدرس، دستور
-    // اگه اولی کار نکرد، دکمه‌ی پایین رو بزن تا بره سراغ بعدی
     private val codes = listOf(
-        Pair(0x04, 0x0B), // INPUT / AV  (رایج‌ترین)
-        Pair(0x04, 0x0F), // TV/AV قدیمی
-        Pair(0x04, 0x38), // AV بعضی مدل‌ها
+        Pair(0x04, 0x0B),
+        Pair(0x04, 0x0F),
+        Pair(0x04, 0x38),
         Pair(0x00, 0x0B)
     )
     private var idx = 0
-    private lateinit var ir: ConsumerIrManager
-    private lateinit var status: TextView
+    private var ir: ConsumerIrManager? = null
+    private var status: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ir = getSystemService(Context.CONSUMER_IR_SERVICE) as ConsumerIrManager
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#101820"))
-            setPadding(32, 32, 32, 32)
-            layoutDirection = View.LAYOUT_DIRECTION_RTL
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.VERTICAL
+        root.gravity = Gravity.CENTER
+        root.setBackgroundColor(Color.parseColor("#101820"))
+        root.setPadding(32, 32, 32, 32)
+        setContentView(root)
+
+        val st = TextView(this)
+        st.textSize = 18f
+        st.setTextColor(Color.LTGRAY)
+        st.gravity = Gravity.CENTER
+        st.setPadding(0, 24, 0, 24)
+        status = st
+
+        try {
+            ir = getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager
+        } catch (e: Throwable) {
+            st.text = "خطا در IR: " + e.toString()
         }
 
-        val big = Button(this).apply {
-            text = "تغییر حالت\nآنتن ⇄ ستاپ‌باکس"
-            textSize = 34f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#E63946"))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
-            )
-            setOnClickListener { send() }
-        }
+        val big = Button(this)
+        big.text = "تغییر حالت\nآنتن ⇄ ستاپ‌باکس"
+        big.textSize = 34f
+        big.typeface = Typeface.DEFAULT_BOLD
+        big.setTextColor(Color.WHITE)
+        big.setBackgroundColor(Color.parseColor("#E63946"))
+        big.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+        )
+        big.setOnClickListener { send() }
 
-        status = TextView(this).apply {
-            textSize = 18f
-            setTextColor(Color.LTGRAY)
-            gravity = Gravity.CENTER
-            setPadding(0, 24, 0, 24)
-            text = if (ir.hasIrEmitter()) "آماده — گوشی رو سمت تلویزیون بگیر" else "این گوشی مادون قرمز نداره!"
-        }
-
-        val next = Button(this).apply {
-            text = "کار نکرد؟ کد بعدی (فعلی: ۱)"
-            setOnClickListener {
-                idx = (idx + 1) % codes.size
-                text = "کار نکرد؟ کد بعدی (فعلی: ${idx + 1})"
-                send()
-            }
+        val next = Button(this)
+        next.text = "کار نکرد؟ کد بعدی (فعلی: 1)"
+        next.setOnClickListener {
+            idx = (idx + 1) % codes.size
+            next.text = "کار نکرد؟ کد بعدی (فعلی: ${idx + 1})"
+            send()
         }
 
         root.addView(big)
-        root.addView(status)
+        root.addView(st)
         root.addView(next)
-        setContentView(root)
+
+        val m = ir
+        if (m == null) {
+            st.text = "این گوشی مادون قرمز (IR) نداره یا اجازه نمیده"
+        } else if (!m.hasIrEmitter()) {
+            st.text = "این گوشی LED مادون قرمز نداره!"
+        } else if (st.text.isEmpty()) {
+            st.text = "آماده — گوشی رو سمت تلویزیون بگیر"
+        }
     }
 
     private fun send() {
-        if (!ir.hasIrEmitter()) return
-        val (addr, cmd) = codes[idx]
-        ir.transmit(38000, necPattern(addr, cmd))
-        status.text = "فرستاده شد ✓"
+        try {
+            val m = ir
+            if (m == null || !m.hasIrEmitter()) {
+                status?.text = "IR در دسترس نیست"
+                return
+            }
+            val (addr, cmd) = codes[idx]
+            m.transmit(38000, necPattern(addr, cmd))
+            status?.text = "فرستاده شد ✓ (کد ${idx + 1})"
+        } catch (e: Throwable) {
+            status?.text = "خطا: " + e.toString()
+        }
     }
 
-    // ساخت سیگنال NEC (واحد: میکروثانیه)
     private fun necPattern(addr: Int, cmd: Int): IntArray {
         val p = ArrayList<Int>()
         p.add(9000); p.add(4500)
@@ -90,7 +105,7 @@ class MainActivity : AppCompatActivity() {
                 ((cmd.inv() and 0xFF) shl 24)
         for (i in 0 until 32) {
             p.add(560)
-            p.add(if ((data shr i) and 1 == 1) 1690 else 560)
+            p.add(if (((data shr i) and 1) == 1) 1690 else 560)
         }
         p.add(560)
         return p.toIntArray()
